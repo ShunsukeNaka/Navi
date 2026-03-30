@@ -1,0 +1,34 @@
+# 環境変数・シークレット
+.env
+
+# Python仮想環境
+venv/
+.venv/
+env/
+
+# Pythonキャッシュ
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# モデルファイル（大きいのでGit管理しない）
+models/
+*.bin
+*.pt
+*.ckpt
+
+# Claude Code
+.claude/
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ログ
+*.log
