@@ -97,9 +97,14 @@ async def main(config_path: str, use_tts: bool) -> None:
 
 
 async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
+    import time
     try:
+        t0 = time.perf_counter()
         wav = await tts.synthesize(text, **tts_params)
+        t1 = time.perf_counter()
         await play_wav(wav)
+        t2 = time.perf_counter()
+        print(f"\n[計測] 合成: {t1-t0:.3f}s  再生: {t2-t1:.3f}s  合計: {t2-t0:.3f}s")
     except Exception as e:
         print(f"\n[TTS エラー: {e}]")
 
