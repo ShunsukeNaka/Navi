@@ -11,14 +11,19 @@ ALSA エラーメッセージの抑制（WSL2環境向け）
 from __future__ import annotations
 
 
+# モジュールレベルで参照を保持し、GCによる解放を防ぐ
+_alsa_error_handler = None
+
+
 def suppress_alsa_errors() -> None:
     """ALSA のエラーハンドラを無効化してログ出力を抑制する"""
+    global _alsa_error_handler
     try:
         import ctypes
         from ctypes import CFUNCTYPE, c_char_p, c_int
         asound = ctypes.cdll.LoadLibrary("libasound.so.2")
-        asound.snd_lib_error_set_handler(
-            CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)(lambda *_: None)
-        )
+        # コールバックをモジュール変数に保存してGCで解放されないようにする
+        _alsa_error_handler = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)(lambda *_: None)
+        asound.snd_lib_error_set_handler(_alsa_error_handler)
     except OSError:
         pass  # libasound が見つからない環境（macOS等）では何もしない
