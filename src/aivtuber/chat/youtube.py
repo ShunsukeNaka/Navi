@@ -46,13 +46,16 @@ class YouTubeChatReader:
         self._config = config
         self._live_chat_id: str | None = None
         self._page_token: str | None = None
+        self._next_wait_sec: float = config.polling_interval_sec  # 次回ポーリングまでの待機秒数
 
     async def initialize(self) -> None:
         """video_id から live_chat_id を取得し、起動前の古いコメントを無視するため初回pageTokenを取得する"""
         self._live_chat_id = await self.get_live_chat_id(self._config.video_id)
         # 起動前に投稿された古いコメントを無視するため、現在の nextPageToken だけ取得する
-        _, _, next_token = await self._fetch_messages(max_results=1)
+        # ポーリング間隔も保存して次回リクエストまで待機する
+        _, polling_interval_ms, next_token = await self._fetch_messages(max_results=1)
         self._page_token = next_token
+        self._next_wait_sec = max(polling_interval_ms / 1000.0, 5.0)
 
     async def get_live_chat_id(self, video_id: str) -> str:
         """
@@ -107,6 +110,7 @@ class YouTubeChatReader:
 
         # APIが返す推奨インターバルを尊重（最低5秒のガード）
         wait_sec = max(polling_interval_ms / 1000.0, 5.0)
+        self._next_wait_sec = wait_sec
         return comments, wait_sec
 
     async def stream_comments(self) -> AsyncIterator[str]:
@@ -123,6 +127,9 @@ class YouTubeChatReader:
 
         retry_count = 0
         max_retries = 3
+
+        # initialize() 直後のリクエストが速すぎないよう最初だけ待機する
+        await asyncio.sleep(self._next_wait_sec)
 
         while True:
             try:
@@ -173,7 +180,8 @@ class YouTubeChatReader:
             resp = await client.get(_LIVE_CHAT_API, params=params)
 
             if resp.status_code == 403:
-                errors = resp.json().get("error", {}).get("errors", [])
+                body = resp.json()
+                errors = body.get("error", {}).get("errors", [])
                 if any(e.get("reason") == "quotaExceeded" for e in errors):
                     raise QuotaExceededError("YouTube Data API のクォータを超過しました")
 
