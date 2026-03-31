@@ -53,12 +53,20 @@ class EmotionDetector:
             )
 
     def detect(self, text: str) -> EmotionResult:
-        # 1. 明示的な感情タグ
+        # thinking ブロックを除去してから判定
+        text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.IGNORECASE | re.DOTALL)
+
+        # 1. 明示的な感情タグ <emotion>happy</emotion>
         tag_match = re.search(r"<emotion>(.*?)</emotion>", text, re.IGNORECASE)
         if tag_match:
             name = tag_match.group(1).strip().lower()
             if name in self._emotions:
                 return EmotionResult(name=name, style=self._emotions[name], confidence=1.0)
+
+        # 1b. 短縮形タグ <happy>, <sad>text</sad> など
+        for emotion_name in self._emotions:
+            if re.search(rf"<{re.escape(emotion_name)}\b", text, re.IGNORECASE):
+                return EmotionResult(name=emotion_name, style=self._emotions[emotion_name], confidence=1.0)
 
         # 2. キーワードマッチ
         scores: dict[str, int] = {}
@@ -86,8 +94,15 @@ class EmotionDetector:
         )
 
     def strip_emotion_tags(self, text: str) -> str:
-        """LLMが出力した感情タグをテキストから除去する"""
-        return re.sub(r"<emotion>.*?</emotion>", "", text, flags=re.IGNORECASE).strip()
+        """LLMが出力した感情タグ・thinkingブロックをテキストから除去する"""
+        # <thinking>...</thinking> ブロックを除去（qwen2.5等のCoTモデル対策）
+        text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.IGNORECASE | re.DOTALL)
+        # <emotion>name</emotion> タグを除去
+        text = re.sub(r"<emotion>.*?</emotion>", "", text, flags=re.IGNORECASE)
+        # 短縮形タグ <happy>, </happy> 等を除去
+        emotion_names = "|".join(re.escape(name) for name in self._emotions)
+        text = re.sub(rf"</?(?:{emotion_names})\b[^>]*>", "", text, flags=re.IGNORECASE)
+        return text.strip()
 
     def get_tts_params(self, emotion: EmotionResult) -> dict:
         """VOICEVOX に渡すprosodyパラメータを返す"""

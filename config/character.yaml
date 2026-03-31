@@ -48,12 +48,12 @@ character:
       tts_pitch: -0.03
 
 llm:
-  provider: "groq"
-  model: "llama-3.3-70b-versatile"
+  # provider: "groq"
+  # model: "llama-3.3-70b-versatile"
   # provider: "gemini"
   # model: "gemini-1.5-flash"
-  # provider: "ollama"
-  # model: "qwen2.5:7b"
+  provider: "ollama"
+  model: "qwen2.5:7b"
   # provider: "claude"
   # model: "claude-opus-4-5"
   temperature: 0.85
@@ -87,3 +87,20 @@ stt:
   vad:
     enabled: true
     silence_threshold_ms: 800
+
+small_talk:
+  enabled: true
+  # この秒数ユーザーからの入力がなければ自発発話を検討する
+  silence_timeout_sec: 5.0
+  # 実際に発話するかどうかの確率（0.0〜1.0 / 1.0で毎回確実に喋る）
+  trigger_probability: 0.7
+  # 一度自発発話したら次の自発発話まで最低この秒数は待つ
+  min_interval_sec: 20.0
+  # 自発発話の話題ヒント（LLMへのプロンプトに埋め込まれる）
+  topics:
+    - "最近流行ってるゲーム"
+    - "アニメや漫画の話題"
+    - "今日の天気や季節のこと"
+    - "おすすめの食べ物・料理"
+    - "日常のちょっとした出来事"
+    - "推しのこと"

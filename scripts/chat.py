@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import random
 import sys
+import time
 from pathlib import Path
 
 # プロジェクトルートを sys.path に追加
@@ -37,9 +39,40 @@ async def play_wav(wav_bytes: bytes) -> None:
     sd.wait()
 
 
+async def _async_input(prompt: str) -> str:
+    """input() を executor で非同期化する"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: input(prompt))
+
+
+async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
+    try:
+        wav = await tts.synthesize(text, **tts_params)
+        await play_wav(wav)
+    except Exception as e:
+        print(f"\n[TTS エラー: {e}]")
+
+
+async def _run_small_talk(brain: Brain, tts: VoicevoxClient | None) -> None:
+    """自発発話を生成して再生する"""
+    tts_tasks: list[asyncio.Task] = []
+    async for chunk in brain.generate_small_talk():
+        if chunk.is_final:
+            print(f"  [{chunk.emotion.name}]\n")
+            break
+        print(chunk.text, end="", flush=True)
+        if tts:
+            tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
+            task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+            tts_tasks.append(task)
+    for task in tts_tasks:
+        await task
+
+
 async def main(config_path: str, use_tts: bool) -> None:
     config = load_config(config_path)
     brain = Brain(config)
+    st_cfg = config.small_talk
 
     tts = None
     if use_tts:
@@ -50,10 +83,29 @@ async def main(config_path: str, use_tts: bool) -> None:
 
     char_name = config.character.name
     print(f"=== {char_name} と話す === ('quit' で終了, 'reset' で記憶リセット)\n")
+    if st_cfg.enabled:
+        print(f"[雑談モード有効: {st_cfg.silence_timeout_sec:.0f}秒無入力で自発発話]\n")
+
+    last_small_talk_time = 0.0
 
     while True:
         try:
-            user_input = input("あなた: ").strip()
+            user_input = await asyncio.wait_for(
+                _async_input("あなた: "),
+                timeout=st_cfg.silence_timeout_sec if st_cfg.enabled else None,
+            )
+        except asyncio.TimeoutError:
+            # プロンプト文字を消してから自発発話
+            print("\r" + " " * 20 + "\r", end="", flush=True)
+            now = time.monotonic()
+            if (
+                (now - last_small_talk_time) >= st_cfg.min_interval_sec
+                and random.random() < st_cfg.trigger_probability
+            ):
+                print(f"{char_name}: ", end="", flush=True)
+                await _run_small_talk(brain, tts)
+                last_small_talk_time = time.monotonic()
+            continue
         except (EOFError, KeyboardInterrupt):
             print("\n終了します。")
             break
@@ -69,7 +121,6 @@ async def main(config_path: str, use_tts: bool) -> None:
 
         print(f"{char_name}: ", end="", flush=True)
 
-        # ストリーミングで応答を受け取る
         full_text = ""
         current_emotion = "neutral"
         tts_tasks: list[asyncio.Task] = []
@@ -81,32 +132,15 @@ async def main(config_path: str, use_tts: bool) -> None:
             print(chunk.text, end="", flush=True)
             full_text += chunk.text
 
-            # TTSは文単位で非同期に開始
             if tts:
                 tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(
-                    _speak(tts, chunk.text, tts_params)
-                )
+                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
                 tts_tasks.append(task)
 
         print(f"  [{current_emotion}]\n")
 
-        # TTS タスクを順番に待つ（音声が重ならないように）
         for task in tts_tasks:
             await task
-
-
-async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
-    import time
-    try:
-        t0 = time.perf_counter()
-        wav = await tts.synthesize(text, **tts_params)
-        t1 = time.perf_counter()
-        await play_wav(wav)
-        t2 = time.perf_counter()
-        print(f"\n[計測] 合成: {t1-t0:.3f}s  再生: {t2-t1:.3f}s  合計: {t2-t0:.3f}s")
-    except Exception as e:
-        print(f"\n[TTS エラー: {e}]")
 
 
 if __name__ == "__main__":

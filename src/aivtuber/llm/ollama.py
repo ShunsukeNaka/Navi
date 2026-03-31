@@ -66,6 +66,8 @@ class OllamaClient(LLMClient):
                     data = json.loads(line)
                     text = data.get("message", {}).get("content", "")
                     if text:
+                        # サロゲート文字を除去（一部モデルで発生するUTF-8エラー対策）
+                        text = text.encode("utf-8", errors="ignore").decode("utf-8")
                         yield text
                     if data.get("done"):
                         break

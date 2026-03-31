@@ -71,6 +71,22 @@ class CharacterConfig(BaseModel):
     emotions: dict[str, EmotionStyle] = Field(default_factory=dict)
 
 
+# ── SmallTalk ─────────────────────────────────────────────────────────────────
+
+class SmallTalkConfig(BaseModel):
+    enabled: bool = True
+    silence_timeout_sec: float = 30.0   # 無入力でトリガーする秒数
+    trigger_probability: float = 0.7    # 実際に発話する確率（0.0〜1.0）
+    min_interval_sec: float = 60.0      # 連続発話を防ぐ最小インターバル（秒）
+    topics: list[str] = Field(default_factory=lambda: [
+        "最近流行ってるゲーム",
+        "アニメや漫画の話題",
+        "今日の天気や季節のこと",
+        "おすすめの食べ物・料理",
+        "日常のちょっとした出来事",
+    ])
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 
 class Config(BaseModel):
@@ -78,6 +94,7 @@ class Config(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
+    small_talk: SmallTalkConfig = Field(default_factory=SmallTalkConfig)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
