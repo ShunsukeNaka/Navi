@@ -87,6 +87,15 @@ class SmallTalkConfig(BaseModel):
     ])
 
 
+# ── YouTube ───────────────────────────────────────────────────────────────────
+
+class YouTubeConfig(BaseModel):
+    api_key: str = Field(default_factory=lambda: os.environ.get("YOUTUBE_API_KEY", ""))
+    video_id: str = ""
+    polling_interval_sec: float = 10.0   # APIが返す interval がない場合のフォールバック（秒）
+    max_comments_per_poll: int = 20       # 1ポーリングで取得するコメントの上限
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 
 class Config(BaseModel):
@@ -95,6 +104,7 @@ class Config(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
     small_talk: SmallTalkConfig = Field(default_factory=SmallTalkConfig)
+    youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

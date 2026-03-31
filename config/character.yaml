@@ -48,12 +48,12 @@ character:
       tts_pitch: -0.03
 
 llm:
-  # provider: "groq"
-  # model: "llama-3.3-70b-versatile"
+  provider: "groq"
+  model: "llama-3.3-70b-versatile"
   # provider: "gemini"
   # model: "gemini-1.5-flash"
-  provider: "ollama"
-  model: "qwen2.5:7b"
+  # provider: "ollama"
+  # model: "qwen2.5:7b"
   # provider: "claude"
   # model: "claude-opus-4-5"
   temperature: 0.85
@@ -104,3 +104,9 @@ small_talk:
     - "おすすめの食べ物・料理"
     - "日常のちょっとした出来事"
     - "推しのこと"
+
+youtube:
+  video_id: ""             # 配信中の動画ID（例: "dQw4w9WgXcQ"）
+  polling_interval_sec: 10.0   # APIが interval を返さない場合のフォールバック（秒）
+  max_comments_per_poll: 20    # 1ポーリングで取得する最大コメント数
+  # api_key は .env の YOUTUBE_API_KEY から自動取得
