@@ -77,11 +77,19 @@ class Brain:
         """
         自発発話（雑談）を生成する。
         ユーザー入力なしで呼び出し、特別なシステムプロンプトを使う。
-        メモリには追加しない（APIのrole交互制約を回避するため）。
+        発話内容はメモリに保存し、続きの会話で参照できるようにする。
         """
         messages = self._memory.to_messages() or [{"role": "user", "content": "(配信開始)"}]
+        full_text = ""
+        final_emotion = "neutral"
         async for chunk in self._stream_chunks(self._build_small_talk_prompt(), messages):
+            if not chunk.is_final:
+                full_text += chunk.text
+            else:
+                final_emotion = chunk.emotion.name
             yield chunk
+        if full_text:
+            self._memory.add_monologue(full_text, final_emotion)
 
     def reset_memory(self) -> None:
         self._memory.clear()
@@ -120,13 +128,16 @@ class Brain:
         )
 
     def _build_small_talk_prompt(self) -> str:
-        topics = "、".join(self._cfg.small_talk.topics)
+        if self._memory.last_was_monologue():
+            continuation = "さっき話していた内容の続きを話してください。または自然な流れで新しい話題に移っても構いません。"
+        else:
+            topics = "、".join(self._cfg.small_talk.topics)
+            continuation = f"話題の候補: {topics}\nユーザーの返答を待たずに、自然に話しかけてください。"
         return (
             self._system_prompt
             + f"\n\n## 自発発話モード\n"
               f"しばらく沈黙が続きました。視聴者に向けて自分から話しかけてください。\n"
-              f"話題の候補: {topics}\n"
-              f"ユーザーの返答を待たずに、自然に話しかけてください。"
+              f"{continuation}"
         )
 
     async def _stream_chunks(

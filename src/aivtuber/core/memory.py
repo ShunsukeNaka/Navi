@@ -43,6 +43,26 @@ class ConversationMemory:
         """Claude Messages API 用のリストに変換"""
         return [{"role": t.role, "content": t.content} for t in self._turns]
 
+    def add_monologue(self, content: str, emotion: str = "neutral") -> None:
+        """
+        VTuber の自発発話をメモリに記録する。
+        role 交互制約を守るため、合成ユーザーターンを前置してから追加する。
+        """
+        self._turns.append(Turn(role="user", content="(しばらく沈黙が続いた)"))
+        self._turns.append(Turn(role="assistant", content=content, emotion=emotion))
+        self._trim()
+
+    def last_was_monologue(self) -> bool:
+        """直近のターンが自発発話（モノローグ）だったか"""
+        turns = list(self._turns)
+        if len(turns) < 2:
+            return False
+        return (
+            turns[-2].role == "user"
+            and turns[-2].content == "(しばらく沈黙が続いた)"
+            and turns[-1].role == "assistant"
+        )
+
     def clear(self) -> None:
         self._turns.clear()
 
