@@ -14,6 +14,7 @@ pyvts ライブラリ経由で VTube Studio WebSocket API に接続し、
 """
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from .base import AvatarController
@@ -29,6 +30,7 @@ class VTubeStudioController(AvatarController):
         self._vts_cfg = config.vtube_studio
         self._vts = None
         self._connected = False
+        self._lock = None  # asyncio.Lock は event loop 内で生成する
 
     async def start(self) -> None:
         try:
@@ -51,6 +53,8 @@ class VTubeStudioController(AvatarController):
             },
         )
 
+        self._lock = asyncio.Lock()
+
         try:
             await self._vts.connect()
         except Exception as e:
@@ -72,30 +76,32 @@ class VTubeStudioController(AvatarController):
             self._connected = False
 
     async def set_emotion(self, emotion_name: str) -> None:
-        if not self._connected:
+        if not self._connected or self._lock is None:
             return
         hotkey = self._vts_cfg.hotkeys.get(emotion_name)
         if not hotkey:
             return
-        try:
-            await self._vts.request(
-                self._vts.vts_request.requestTriggerHotKey(hotkeyID=hotkey)
-            )
-        except Exception as e:
-            print(f"[VTS] ホットキー失敗 ({hotkey}): {e}")
-            self._connected = False
+        async with self._lock:
+            try:
+                await self._vts.request(
+                    self._vts.vts_request.requestTriggerHotKey(hotkeyID=hotkey)
+                )
+            except Exception as e:
+                print(f"[VTS] ホットキー失敗 ({hotkey}): {e}")
+                self._connected = False
 
     async def set_mouth_open(self, value: float) -> None:
-        if not self._connected:
+        if not self._connected or self._lock is None:
             return
         value = max(0.0, min(1.0, value))
-        try:
-            await self._vts.request(
-                self._vts.vts_request.requestSetParameterValue(
-                    parameter=self._vts_cfg.mouth_param,
-                    value=value,
+        async with self._lock:
+            try:
+                await self._vts.request(
+                    self._vts.vts_request.requestSetParameterValue(
+                        parameter=self._vts_cfg.mouth_param,
+                        value=value,
+                    )
                 )
-            )
-        except Exception as e:
-            print(f"[VTS] パラメータ設定失敗: {e}")
-            self._connected = False
+            except Exception as e:
+                print(f"[VTS] パラメータ設定失敗: {e}")
+                self._connected = False
