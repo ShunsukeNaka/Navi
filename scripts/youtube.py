@@ -131,74 +131,67 @@ async def _speak_small_talk(
         raise
 
 
-async def comment_loop(
+async def fill_comment_queue(
     reader: YouTubeChatReader,
-    brain: Brain,
-    tts: VoicevoxClient | None,
-    is_speaking: asyncio.Event,
-    last_interaction: list[float],
-    avatar,
+    queue: asyncio.Queue,
 ) -> None:
-    """
-    コメントを受け取って順次応答する。
-    スーパーチャットは優先処理（AI発話中でも割り込む）。
-    通常コメントはAI発話中はスキップ。
-    """
+    """YouTube コメントをキューに流し込む。配信終了で終わる。"""
     async for msg in reader.stream_comments():
-        # スーパーチャットは発話中でも優先して処理
-        if is_speaking.is_set():
-            if msg.is_superchat:
-                pass  # 続行して応答
-            else:
-                label = msg.text[:30] + ("..." if len(msg.text) > 30 else "")
-                print(f"[スキップ（AI発話中）: {label}]")
-                continue
-
-        last_interaction[0] = time.monotonic()
-        if msg.is_superchat:
-            await speak_superchat_response(
-                brain, tts, msg.author, msg.amount, msg.text, is_speaking, avatar
-            )
-        else:
-            await speak_response(brain, tts, msg.text, is_speaking, avatar)
-        last_interaction[0] = time.monotonic()
-
+        await queue.put(msg)
     print("\n[配信が終了しました]")
 
 
-async def silence_monitor(
+async def response_loop(
     brain: Brain,
     tts: VoicevoxClient | None,
-    is_speaking: asyncio.Event,
-    last_interaction: list[float],
-    cfg: SmallTalkConfig,
     avatar,
+    cfg: SmallTalkConfig,
+    queue: asyncio.Queue,
+    last_interaction: list[float],
 ) -> None:
-    """0.3秒ごとに沈黙時間をチェックし、閾値を超えたら自発発話する"""
+    """
+    コメントキューを順番に処理し、空のときは自発発話する。
+    コメントはスキップせずキューに溜まる。
+    """
+    is_speaking = asyncio.Event()
     last_small_talk_time = 0.0
 
     while True:
-        await asyncio.sleep(0.3)
+        # キューにコメントがあれば優先処理
+        try:
+            msg = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            msg = None
 
-        if not cfg.enabled or is_speaking.is_set():
-            continue
-
-        now = time.monotonic()
-        if (
-            now - last_interaction[0] >= cfg.silence_timeout_sec
-            and now - last_small_talk_time >= cfg.min_interval_sec
-            and random.random() < cfg.trigger_probability
-        ):
-            small_talk_task = asyncio.create_task(_speak_small_talk(brain, tts, avatar))
-            try:
+        if msg is not None:
+            last_interaction[0] = time.monotonic()
+            if msg.is_superchat:
+                await speak_superchat_response(
+                    brain, tts, msg.author, msg.amount, msg.text, is_speaking, avatar
+                )
+            else:
+                await speak_response(brain, tts, msg.text, is_speaking, avatar)
+            last_interaction[0] = time.monotonic()
+        else:
+            # キューが空 → 自発発話チェック
+            now = time.monotonic()
+            if (
+                cfg.enabled
+                and now - last_interaction[0] >= cfg.silence_timeout_sec
+                and now - last_small_talk_time >= cfg.min_interval_sec
+                and random.random() < cfg.trigger_probability
+            ):
                 is_speaking.set()
-                await small_talk_task
-                last_small_talk_time = time.monotonic()
-                # last_interaction は更新しない → 小発話後も即次の発話へ続く
-            except asyncio.CancelledError:
-                pass
-            finally:
-                is_speaking.clear()
+                try:
+                    await _speak_small_talk(brain, tts, avatar)
+                    last_small_talk_time = time.monotonic()
+                    # last_interaction は更新しない → 即次の発話へ続く
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    is_speaking.clear()
+            else:
+                await asyncio.sleep(0.3)
 
 
 async def main(config_path: str, video_id_override: str | None, use_tts: bool) -> None:
@@ -244,25 +237,25 @@ async def main(config_path: str, video_id_override: str | None, use_tts: bool) -
         print(f"[雑談モード有効: {st_cfg.silence_timeout_sec:.0f}秒の沈黙で自発発話]")
     print()
 
-    is_speaking = asyncio.Event()
     last_interaction: list[float] = [time.monotonic()]
+    comment_queue: asyncio.Queue = asyncio.Queue()
 
-    comment_task = asyncio.create_task(
-        comment_loop(reader, brain, tts, is_speaking, last_interaction, avatar)
+    fill_task = asyncio.create_task(
+        fill_comment_queue(reader, comment_queue)
     )
-    monitor_task = asyncio.create_task(
-        silence_monitor(brain, tts, is_speaking, last_interaction, st_cfg, avatar)
+    resp_task = asyncio.create_task(
+        response_loop(brain, tts, avatar, st_cfg, comment_queue, last_interaction)
     )
 
     try:
-        await asyncio.gather(comment_task, monitor_task)
+        await asyncio.gather(fill_task, resp_task)
     except QuotaExceededError:
         print("\n[エラー] YouTube API のクォータを超過しました。明日まで待ってください。")
     except KeyboardInterrupt:
         print("\n終了します。")
     finally:
-        comment_task.cancel()
-        monitor_task.cancel()
+        fill_task.cancel()
+        resp_task.cancel()
         await avatar.stop()
 
 
