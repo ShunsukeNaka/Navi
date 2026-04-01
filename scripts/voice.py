@@ -24,6 +24,8 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from aivtuber.utils.alsa import suppress_alsa_errors
 suppress_alsa_errors()
 
+from aivtuber.avatar import create_avatar_controller
+from aivtuber.avatar.player import speak as avatar_speak
 from aivtuber.core.brain import Brain
 from aivtuber.core.config import SmallTalkConfig, load_config
 from aivtuber.stt.faster_whisper import WhisperSTT
@@ -45,6 +47,7 @@ async def speak_stream(
     tts: VoicevoxClient | None,
     user_input: str,
     state: VoiceSessionState,
+    avatar,
 ) -> None:
     char_name = brain._cfg.character.name
     print(f"{char_name}: ", end="", flush=True)
@@ -59,7 +62,7 @@ async def speak_stream(
             print(chunk.text, end="", flush=True)
             if tts:
                 tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+                task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
                 tts_tasks.append(task)
         for task in tts_tasks:
             await task
@@ -72,6 +75,7 @@ async def _speak_small_talk(
     brain: Brain,
     tts: VoicevoxClient | None,
     state: VoiceSessionState,
+    avatar,
 ) -> None:
     """自発発話を生成・再生する。ユーザー割り込みで即中断。"""
     char_name = brain._cfg.character.name
@@ -88,7 +92,7 @@ async def _speak_small_talk(
             print(chunk.text, end="", flush=True)
             if tts:
                 tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+                task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
                 tts_tasks.append(task)
         for task in tts_tasks:
             await task
@@ -104,6 +108,7 @@ async def silence_monitor(
     tts: VoicevoxClient | None,
     state: VoiceSessionState,
     cfg: SmallTalkConfig,
+    avatar,
 ) -> None:
     """5秒ごとに沈黙時間をチェックし、閾値を超えたら自発発話する"""
     while True:
@@ -121,7 +126,7 @@ async def silence_monitor(
             state.is_ai_speaking.set()
             state.user_spoke.clear()
             state.small_talk_task = asyncio.create_task(
-                _speak_small_talk(brain, tts, state)
+                _speak_small_talk(brain, tts, state, avatar)
             )
             try:
                 await state.small_talk_task
@@ -132,19 +137,6 @@ async def silence_monitor(
             finally:
                 state.is_ai_speaking.clear()
                 state.small_talk_task = None
-
-
-async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
-    import io
-    import sounddevice as sd
-    import soundfile as sf
-    try:
-        wav = await tts.synthesize(text, **tts_params)
-        data, sr = sf.read(io.BytesIO(wav))
-        sd.play(data, sr)
-        sd.wait()
-    except Exception as e:
-        print(f"\n[TTS エラー: {e}]")
 
 
 async def main(config_path: str) -> None:
@@ -159,6 +151,9 @@ async def main(config_path: str) -> None:
 
     stt = WhisperSTT(config.stt)
     stt.load()
+
+    avatar = create_avatar_controller(config.avatar)
+    await avatar.start()
 
     state = VoiceSessionState()
     loop = asyncio.get_event_loop()
@@ -180,7 +175,7 @@ async def main(config_path: str) -> None:
 
             state.user_spoke.clear()
             asyncio.run_coroutine_threadsafe(
-                speak_stream(brain, tts, text, state), loop
+                speak_stream(brain, tts, text, state, avatar), loop
             ).result()
             state.last_interaction_time = time.monotonic()
 
@@ -190,7 +185,7 @@ async def main(config_path: str) -> None:
     t = threading.Thread(target=stt_loop, daemon=True)
     t.start()
 
-    monitor_task = asyncio.create_task(silence_monitor(brain, tts, state, st_cfg))
+    monitor_task = asyncio.create_task(silence_monitor(brain, tts, state, st_cfg, avatar))
 
     try:
         await asyncio.Event().wait()  # Ctrl+C まで待機
@@ -198,6 +193,7 @@ async def main(config_path: str) -> None:
         print("\n終了します。")
     finally:
         monitor_task.cancel()
+        await avatar.stop()
 
 
 if __name__ == "__main__":

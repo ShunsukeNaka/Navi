@@ -48,12 +48,12 @@ character:
       tts_pitch: -0.03
 
 llm:
-  provider: "groq"
-  model: "llama-3.3-70b-versatile"
+  # provider: "groq"
+  # model: "llama-3.3-70b-versatile"
   # provider: "gemini"
   # model: "gemini-1.5-flash"
-  # provider: "ollama"
-  # model: "qwen2.5:7b"
+  provider: "ollama"
+  model: "qwen2.5:7b"
   # provider: "claude"
   # model: "claude-opus-4-5"
   temperature: 0.85
@@ -71,7 +71,7 @@ tts:
   provider: "voicevox"
   voicevox:
     base_url: "http://localhost:50021"
-    speaker_id: 3  # 3 = ずんだもん（後で変更可）
+    speaker_id: 8  # 3 = ずんだもん（後で変更可）
     # 感情に応じてprosodyが上書きされる（character.emotions の値が優先）
     default_prosody:
       speed_scale: 1.0
@@ -110,3 +110,9 @@ youtube:
   polling_interval_sec: 10.0   # APIが interval を返さない場合のフォールバック（秒）
   max_comments_per_poll: 20    # 1ポーリングで取得する最大コメント数
   # api_key は .env の YOUTUBE_API_KEY から自動取得
+
+avatar:
+  type: browser            # none | browser | vtube_studio | vmc
+  host: localhost
+  port: 8765
+  image_dir: ""            # 空 = SVG プレースホルダー / "static/images/" など

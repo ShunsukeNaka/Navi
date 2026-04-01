@@ -27,19 +27,11 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from aivtuber.utils.alsa import suppress_alsa_errors
 suppress_alsa_errors()
 
+from aivtuber.avatar import create_avatar_controller
+from aivtuber.avatar.player import speak as avatar_speak
 from aivtuber.core.brain import Brain
 from aivtuber.core.config import load_config
 from aivtuber.tts.voicevox import VoicevoxClient
-
-
-async def play_wav(wav_bytes: bytes) -> None:
-    """WAVバイト列を再生する"""
-    import io
-    import sounddevice as sd
-    import soundfile as sf
-    data, samplerate = sf.read(io.BytesIO(wav_bytes))
-    sd.play(data, samplerate)
-    sd.wait()
 
 
 async def _async_input(prompt: str) -> str:
@@ -48,15 +40,7 @@ async def _async_input(prompt: str) -> str:
     return await loop.run_in_executor(None, lambda: input(prompt))
 
 
-async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
-    try:
-        wav = await tts.synthesize(text, **tts_params)
-        await play_wav(wav)
-    except Exception as e:
-        print(f"\n[TTS エラー: {e}]")
-
-
-async def _run_small_talk(brain: Brain, tts: VoicevoxClient | None) -> None:
+async def _run_small_talk(brain: Brain, tts: VoicevoxClient | None, avatar) -> None:
     """自発発話を生成して再生する"""
     tts_tasks: list[asyncio.Task] = []
     async for chunk in brain.generate_small_talk():
@@ -66,7 +50,7 @@ async def _run_small_talk(brain: Brain, tts: VoicevoxClient | None) -> None:
         print(chunk.text, end="", flush=True)
         if tts:
             tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-            task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+            task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
             tts_tasks.append(task)
     for task in tts_tasks:
         await task
@@ -84,6 +68,9 @@ async def main(config_path: str, use_tts: bool) -> None:
             print("[警告] VOICEVOXが起動していません。テキストのみで動作します。")
             tts = None
 
+    avatar = create_avatar_controller(config.avatar)
+    await avatar.start()
+
     char_name = config.character.name
     print(f"=== {char_name} と話す === ('quit' で終了, 'reset' で記憶リセット)\n")
     if st_cfg.enabled:
@@ -91,59 +78,56 @@ async def main(config_path: str, use_tts: bool) -> None:
 
     last_small_talk_time = 0.0
 
-    while True:
-        try:
-            user_input = await asyncio.wait_for(
-                _async_input("あなた: "),
-                timeout=st_cfg.silence_timeout_sec if st_cfg.enabled else None,
-            )
-        except asyncio.TimeoutError:
-            # プロンプト文字を消してから自発発話
-            print("\r" + " " * 20 + "\r", end="", flush=True)
-            now = time.monotonic()
-            if (
-                (now - last_small_talk_time) >= st_cfg.min_interval_sec
-                and random.random() < st_cfg.trigger_probability
-            ):
-                print(f"{char_name}: ", end="", flush=True)
-                await _run_small_talk(brain, tts)
-                last_small_talk_time = time.monotonic()
-            continue
-        except (EOFError, KeyboardInterrupt):
-            print("\n終了します。")
-            break
-
-        if not user_input:
-            continue
-        if user_input.lower() == "quit":
-            break
-        if user_input.lower() == "reset":
-            brain.reset_memory()
-            print("[記憶をリセットしました]\n")
-            continue
-
-        print(f"{char_name}: ", end="", flush=True)
-
-        full_text = ""
-        current_emotion = "neutral"
-        tts_tasks: list[asyncio.Task] = []
-
-        async for chunk in brain.respond_stream(user_input):
-            if chunk.is_final:
-                current_emotion = chunk.emotion.name
+    try:
+        while True:
+            try:
+                user_input = await asyncio.wait_for(
+                    _async_input("あなた: "),
+                    timeout=st_cfg.silence_timeout_sec if st_cfg.enabled else None,
+                )
+            except asyncio.TimeoutError:
+                print("\r" + " " * 20 + "\r", end="", flush=True)
+                now = time.monotonic()
+                if (
+                    (now - last_small_talk_time) >= st_cfg.min_interval_sec
+                    and random.random() < st_cfg.trigger_probability
+                ):
+                    print(f"{char_name}: ", end="", flush=True)
+                    await _run_small_talk(brain, tts, avatar)
+                    last_small_talk_time = time.monotonic()
+                continue
+            except (EOFError, KeyboardInterrupt):
+                print("\n終了します。")
                 break
-            print(chunk.text, end="", flush=True)
-            full_text += chunk.text
 
-            if tts:
-                tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
-                tts_tasks.append(task)
+            if not user_input:
+                continue
+            if user_input.lower() == "quit":
+                break
+            if user_input.lower() == "reset":
+                brain.reset_memory()
+                print("[記憶をリセットしました]\n")
+                continue
 
-        print(f"  [{current_emotion}]\n")
+            print(f"{char_name}: ", end="", flush=True)
 
-        for task in tts_tasks:
-            await task
+            tts_tasks: list[asyncio.Task] = []
+
+            async for chunk in brain.respond_stream(user_input):
+                if chunk.is_final:
+                    print(f"  [{chunk.emotion.name}]\n")
+                    break
+                print(chunk.text, end="", flush=True)
+
+                if tts:
+                    tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
+                    task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
+                    tts_tasks.append(task)
+
+            for task in tts_tasks:
+                await task
+    finally:
+        await avatar.stop()
 
 
 if __name__ == "__main__":

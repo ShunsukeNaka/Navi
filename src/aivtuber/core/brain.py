@@ -73,6 +73,25 @@ class Brain:
             yield chunk
         self._memory.add_assistant(full_text, final_emotion)
 
+    async def respond_superchat_stream(
+        self, author: str, amount: str, comment: str
+    ) -> AsyncIterator["StreamChunk"]:
+        """
+        スーパーチャットへの応答を生成する。
+        通常応答より感謝・興奮度が高い専用プロンプトを使う。
+        """
+        sc_prompt = self._build_superchat_prompt(author, amount, comment)
+        self._memory.add_user(sc_prompt)
+        full_text = ""
+        final_emotion = "excited"
+        async for chunk in self._stream_chunks(self._system_prompt, self._memory.to_messages()):
+            if not chunk.is_final:
+                full_text += chunk.text
+            else:
+                final_emotion = chunk.emotion.name
+            yield chunk
+        self._memory.add_assistant(full_text, final_emotion)
+
     async def generate_small_talk(self) -> AsyncIterator["StreamChunk"]:
         """
         自発発話（雑談）を生成する。
@@ -126,6 +145,16 @@ class Brain:
             f"{emotion_instruction}"
             f"\n返答は必ず{llm.max_sentences}文以内にしてください。"
         )
+
+    def _build_superchat_prompt(self, author: str, amount: str, comment: str) -> str:
+        base = f"【スーパーチャット {amount}】{author}さんがスーパーチャットを送ってくれました！"
+        if comment:
+            base += f" メッセージ：「{comment}」"
+        base += (
+            " めちゃくちゃ嬉しい！感謝の気持ちをたっぷり込めて、興奮気味に名前を呼んで反応してください。"
+            " 絶対に普通のテンションで返してはいけません。"
+        )
+        return base
 
     def _build_small_talk_prompt(self) -> str:
         if self._memory.last_was_monologue():

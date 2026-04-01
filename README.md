@@ -10,7 +10,8 @@ AIVTuber/
 │   └── character.yaml      # キャラクター・LLM・TTSの設定（チューニングはここだけ）
 ├── scripts/
 │   ├── chat.py             # テキスト入力で動作確認
-│   └── voice.py            # マイク入力フルパイプライン
+│   ├── voice.py            # マイク入力フルパイプライン
+│   └── youtube.py          # YouTube Live コメント読み取りパイプライン
 └── src/aivtuber/
     ├── core/
     │   ├── brain.py        # 中心ロジック（LLM・記憶・感情を統合）
@@ -24,8 +25,10 @@ AIVTuber/
     │   └── ollama.py
     ├── tts/
     │   └── voicevox.py     # VOICEVOX クライアント
-    └── stt/
-        └── faster_whisper.py  # 音声認識
+    ├── stt/
+    │   └── faster_whisper.py  # 音声認識
+    └── chat/
+        └── youtube.py      # YouTube Live チャット読み取り
 ```
 
 ## セットアップ
@@ -65,6 +68,27 @@ python scripts/chat.py
 ```bash
 python scripts/voice.py
 ```
+
+### YouTube Live モード
+
+`.env` に `YOUTUBE_API_KEY` を設定してから：
+
+```bash
+python scripts/youtube.py --video-id <VIDEO_ID>
+
+# TTS なし（テキストのみ）
+python scripts/youtube.py --video-id <VIDEO_ID> --no-tts
+```
+
+`video_id` は `config/character.yaml` の `youtube.video_id` に書いておくことも可能。
+
+#### スーパーチャット対応
+
+スーパーチャットを受信すると、通常コメントとは異なる専用の応答を返す：
+
+- 送信者の名前・金額を含む感謝プロンプトを自動生成し、LLMに渡す
+- AI発話中であっても割り込んで優先処理される
+- 同一ポーリングに複数のメッセージがある場合、スーパーチャットが優先選択される
 
 ## LLMプロバイダーの切り替え
 

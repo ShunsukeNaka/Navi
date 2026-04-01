@@ -30,23 +30,12 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from aivtuber.utils.alsa import suppress_alsa_errors
 suppress_alsa_errors()
 
-from aivtuber.chat.youtube import LiveStreamEndedError, QuotaExceededError, YouTubeChatReader
+from aivtuber.avatar import create_avatar_controller
+from aivtuber.avatar.player import speak as avatar_speak
+from aivtuber.chat.youtube import ChatMessage, LiveStreamEndedError, QuotaExceededError, YouTubeChatReader
 from aivtuber.core.brain import Brain
 from aivtuber.core.config import SmallTalkConfig, load_config
 from aivtuber.tts.voicevox import VoicevoxClient
-
-
-async def _speak(tts: VoicevoxClient, text: str, tts_params: dict) -> None:
-    import io
-    import sounddevice as sd
-    import soundfile as sf
-    try:
-        wav = await tts.synthesize(text, **tts_params)
-        data, sr = sf.read(io.BytesIO(wav))
-        sd.play(data, sr)
-        sd.wait()
-    except Exception as e:
-        print(f"\n[TTS エラー: {e}]")
 
 
 async def speak_response(
@@ -54,6 +43,7 @@ async def speak_response(
     tts: VoicevoxClient | None,
     comment: str,
     is_speaking: asyncio.Event,
+    avatar,
 ) -> None:
     """コメントに対してストリーム応答しTTSで再生する"""
     char_name = brain._cfg.character.name
@@ -70,7 +60,41 @@ async def speak_response(
             print(chunk.text, end="", flush=True)
             if tts:
                 tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+                task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
+                tts_tasks.append(task)
+        for task in tts_tasks:
+            await task
+    finally:
+        is_speaking.clear()
+    print()
+
+
+async def speak_superchat_response(
+    brain: Brain,
+    tts: VoicevoxClient | None,
+    author: str,
+    amount: str,
+    comment: str,
+    is_speaking: asyncio.Event,
+    avatar,
+) -> None:
+    """スーパーチャットに対して興奮気味の感謝応答をTTSで再生する"""
+    char_name = brain._cfg.character.name
+    sc_label = f"スーパーチャット {amount} from {author}"
+    print(f"\n[{sc_label}]" + (f" 「{comment}」" if comment else ""))
+    print(f"{char_name}: ", end="", flush=True)
+
+    is_speaking.set()
+    tts_tasks: list[asyncio.Task] = []
+    try:
+        async for chunk in brain.respond_superchat_stream(author, amount, comment):
+            if chunk.is_final:
+                print(f"  [{chunk.emotion.name}]")
+                break
+            print(chunk.text, end="", flush=True)
+            if tts:
+                tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
+                task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
                 tts_tasks.append(task)
         for task in tts_tasks:
             await task
@@ -82,6 +106,7 @@ async def speak_response(
 async def _speak_small_talk(
     brain: Brain,
     tts: VoicevoxClient | None,
+    avatar,
 ) -> None:
     """自発発話を生成・再生する"""
     char_name = brain._cfg.character.name
@@ -96,7 +121,7 @@ async def _speak_small_talk(
             print(chunk.text, end="", flush=True)
             if tts:
                 tts_params = brain._emotion_detector.get_tts_params(chunk.emotion)
-                task = asyncio.create_task(_speak(tts, chunk.text, tts_params))
+                task = asyncio.create_task(avatar_speak(tts, chunk.text, tts_params, avatar, chunk.emotion.name))
                 tts_tasks.append(task)
         for task in tts_tasks:
             await task
@@ -112,18 +137,30 @@ async def comment_loop(
     tts: VoicevoxClient | None,
     is_speaking: asyncio.Event,
     last_interaction: list[float],
+    avatar,
 ) -> None:
     """
     コメントを受け取って順次応答する。
-    AI発話中はコメントをスキップして次のポーリングを待つ。
+    スーパーチャットは優先処理（AI発話中でも割り込む）。
+    通常コメントはAI発話中はスキップ。
     """
-    async for comment in reader.stream_comments():
+    async for msg in reader.stream_comments():
+        # スーパーチャットは発話中でも優先して処理
         if is_speaking.is_set():
-            print(f"[スキップ（AI発話中）: {comment[:30]}{'...' if len(comment) > 30 else ''}]")
-            continue
+            if msg.is_superchat:
+                pass  # 続行して応答
+            else:
+                label = msg.text[:30] + ("..." if len(msg.text) > 30 else "")
+                print(f"[スキップ（AI発話中）: {label}]")
+                continue
 
         last_interaction[0] = time.monotonic()
-        await speak_response(brain, tts, comment, is_speaking)
+        if msg.is_superchat:
+            await speak_superchat_response(
+                brain, tts, msg.author, msg.amount, msg.text, is_speaking, avatar
+            )
+        else:
+            await speak_response(brain, tts, msg.text, is_speaking, avatar)
         last_interaction[0] = time.monotonic()
 
     print("\n[配信が終了しました]")
@@ -135,6 +172,7 @@ async def silence_monitor(
     is_speaking: asyncio.Event,
     last_interaction: list[float],
     cfg: SmallTalkConfig,
+    avatar,
 ) -> None:
     """5秒ごとに沈黙時間をチェックし、閾値を超えたら自発発話する"""
     last_small_talk_time = 0.0
@@ -151,7 +189,7 @@ async def silence_monitor(
             and now - last_small_talk_time >= cfg.min_interval_sec
             and random.random() < cfg.trigger_probability
         ):
-            small_talk_task = asyncio.create_task(_speak_small_talk(brain, tts))
+            small_talk_task = asyncio.create_task(_speak_small_talk(brain, tts, avatar))
             try:
                 is_speaking.set()
                 await small_talk_task
@@ -186,6 +224,9 @@ async def main(config_path: str, video_id_override: str | None, use_tts: bool) -
             print("[警告] VOICEVOXが起動していません。テキストのみで動作します。")
             tts = None
 
+    avatar = create_avatar_controller(config.avatar)
+    await avatar.start()
+
     char_name = config.character.name
     print(f"=== {char_name} の YouTube Live セッション ===")
     print(f"[YouTube Live] video_id={yt_cfg.video_id} の配信に接続中...")
@@ -195,6 +236,7 @@ async def main(config_path: str, video_id_override: str | None, use_tts: bool) -
         await reader.initialize()
     except Exception as e:
         print(f"[エラー] 初期化失敗: {e}")
+        await avatar.stop()
         return
 
     print(f"[YouTube Live] 接続完了。コメント待機中...")
@@ -206,10 +248,10 @@ async def main(config_path: str, video_id_override: str | None, use_tts: bool) -
     last_interaction: list[float] = [time.monotonic()]
 
     comment_task = asyncio.create_task(
-        comment_loop(reader, brain, tts, is_speaking, last_interaction)
+        comment_loop(reader, brain, tts, is_speaking, last_interaction, avatar)
     )
     monitor_task = asyncio.create_task(
-        silence_monitor(brain, tts, is_speaking, last_interaction, st_cfg)
+        silence_monitor(brain, tts, is_speaking, last_interaction, st_cfg, avatar)
     )
 
     try:
@@ -221,6 +263,7 @@ async def main(config_path: str, video_id_override: str | None, use_tts: bool) -
     finally:
         comment_task.cancel()
         monitor_task.cancel()
+        await avatar.stop()
 
 
 if __name__ == "__main__":

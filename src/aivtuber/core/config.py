@@ -96,6 +96,15 @@ class YouTubeConfig(BaseModel):
     max_comments_per_poll: int = 20       # 1ポーリングで取得するコメントの上限
 
 
+# ── Avatar ────────────────────────────────────────────────────────────────────
+
+class AvatarConfig(BaseModel):
+    type: str = "none"       # none | browser | vtube_studio | vmc
+    host: str = "localhost"
+    port: int = 8765
+    image_dir: str = ""      # 空 → CSS/SVG プレースホルダー使用
+
+
 # ── Root ──────────────────────────────────────────────────────────────────────
 
 class Config(BaseModel):
@@ -105,6 +114,7 @@ class Config(BaseModel):
     stt: STTConfig = Field(default_factory=STTConfig)
     small_talk: SmallTalkConfig = Field(default_factory=SmallTalkConfig)
     youtube: YouTubeConfig = Field(default_factory=YouTubeConfig)
+    avatar: AvatarConfig = Field(default_factory=AvatarConfig)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
