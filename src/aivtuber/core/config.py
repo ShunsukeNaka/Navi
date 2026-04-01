@@ -98,11 +98,27 @@ class YouTubeConfig(BaseModel):
 
 # ── Avatar ────────────────────────────────────────────────────────────────────
 
+class VTubeStudioConfig(BaseModel):
+    port: int = 8001
+    token_path: str = "./vts_token.txt"
+    plugin_name: str = "AIVTuber"
+    developer: str = "AIVTuber"
+    hotkeys: dict[str, str] = Field(default_factory=lambda: {
+        "neutral":  "Neutral",
+        "happy":    "Happy",
+        "sad":      "Sad",
+        "excited":  "Excited",
+        "thinking": "Thinking",
+        "angry":    "Angry",
+    })
+    mouth_param: str = "MouthOpen"
+
 class AvatarConfig(BaseModel):
     type: str = "none"       # none | browser | vtube_studio | vmc
     host: str = "localhost"
     port: int = 8765
     image_dir: str = ""      # 空 → CSS/SVG プレースホルダー使用
+    vtube_studio: VTubeStudioConfig = Field(default_factory=VTubeStudioConfig)
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────

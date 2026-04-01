@@ -116,3 +116,15 @@ avatar:
   host: localhost
   port: 8765
   image_dir: ""            # 空 = SVG プレースホルダー / "static/images/" など
+  # VTube Studio 使用時は type を vtube_studio に変更し、以下のコメントを外す:
+  # vtube_studio:
+  #   port: 8001
+  #   token_path: "./vts_token.txt"
+  #   hotkeys:
+  #     neutral:  "Neutral"    # VTube Studio 側で設定したホットキー名に合わせる
+  #     happy:    "Happy"
+  #     sad:      "Sad"
+  #     excited:  "Excited"
+  #     thinking: "Thinking"
+  #     angry:    "Angry"
+  #   mouth_param: "MouthOpen"
