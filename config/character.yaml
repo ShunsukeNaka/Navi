@@ -91,11 +91,11 @@ stt:
 small_talk:
   enabled: true
   # この秒数ユーザーからの入力がなければ自発発話を検討する
-  silence_timeout_sec: 5.0
+  silence_timeout_sec: 1.5
   # 実際に発話するかどうかの確率（0.0〜1.0 / 1.0で毎回確実に喋る）
-  trigger_probability: 0.7
+  trigger_probability: 1.0
   # 一度自発発話したら次の自発発話まで最低この秒数は待つ
-  min_interval_sec: 20.0
+  min_interval_sec: 5.0
   # 自発発話の話題ヒント（LLMへのプロンプトに埋め込まれる）
   topics:
     - "最近流行ってるゲーム"
