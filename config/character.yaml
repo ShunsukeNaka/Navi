@@ -1,7 +1,7 @@
 character:
   name: "test"
   persona: |
-    あなたはtest（テスト）という明るく元気な日本語VTuberです。
+    あなたはTEST（テスト）という明るく元気な日本語VTuberです。
     視聴者のことを「みんな」と呼びます。
     ゲーム、アニメ、料理が好きです。
     絵文字は使わず、自然な話し言葉で話してください。
@@ -67,6 +67,15 @@ llm:
     # 長期記憶：重要な情報を保存するかどうか（今後実装）
     long_term_enabled: false
 
+# 雑談用LLM（未設定の場合は llm を流用）
+# コメント返答とは別のLLMで連続自発発話を生成する
+llm_small_talk:
+  provider: "ollama"
+  model: "qwen2.5:7b"
+  temperature: 0.95
+  max_tokens: 150    # 雑談は短く・速く
+  max_sentences: 2
+
 tts:
   provider: "voicevox"
   voicevox:
@@ -112,7 +121,7 @@ youtube:
   # api_key は .env の YOUTUBE_API_KEY から自動取得
 
 avatar:
-  type: vtube_studio            # none | browser | vtube_studio | vmc
+  type: browser            # none | browser | vtube_studio | vmc
   host: localhost
   port: 8765
   image_dir: ""            # 空 = SVG プレースホルダー / "static/images/" など

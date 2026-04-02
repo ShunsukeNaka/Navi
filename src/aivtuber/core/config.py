@@ -126,6 +126,7 @@ class AvatarConfig(BaseModel):
 class Config(BaseModel):
     character: CharacterConfig = Field(default_factory=CharacterConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    llm_small_talk: LLMConfig | None = None  # None → llm を流用
     tts: TTSConfig = Field(default_factory=TTSConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
     small_talk: SmallTalkConfig = Field(default_factory=SmallTalkConfig)

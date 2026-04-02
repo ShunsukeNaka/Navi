@@ -37,6 +37,10 @@ class Brain:
         from ..llm.factory import create_llm_client
         self._cfg = config
         self._llm = create_llm_client(config.llm)
+        self._llm_small_talk = (
+            create_llm_client(config.llm_small_talk)
+            if config.llm_small_talk else self._llm
+        )
         self._memory = ConversationMemory(max_turns=config.llm.memory.short_term_turns)
         self._emotion_detector = EmotionDetector(config.character)
         self._system_prompt = self._build_system_prompt()
@@ -101,7 +105,7 @@ class Brain:
         messages = self._memory.to_messages() or [{"role": "user", "content": "(配信開始)"}]
         full_text = ""
         final_emotion = "neutral"
-        async for chunk in self._stream_chunks(self._build_small_talk_prompt(), messages):
+        async for chunk in self._stream_chunks(self._build_small_talk_prompt(), messages, llm=self._llm_small_talk):
             if not chunk.is_final:
                 full_text += chunk.text
             else:
@@ -173,23 +177,30 @@ class Brain:
         )
 
     async def _stream_chunks(
-        self, system: str, messages: list[dict]
+        self, system: str, messages: list[dict], llm=None
     ) -> AsyncIterator["StreamChunk"]:
         """
         thinking除去 + 文単位分割の共通ストリーミングロジック。
         respond_stream() と generate_small_talk() の両方から使う。
+        llm を指定しない場合は self._llm を使う。
         """
+        client = llm if llm is not None else self._llm
+        llm_cfg = (
+            self._cfg.llm_small_talk
+            if (llm is not None and llm is not self._llm and self._cfg.llm_small_talk)
+            else self._cfg.llm
+        )
         buffer = ""
         raw = ""
         full_text = ""
         processed = 0
         in_thinking = False
 
-        async for token in self._llm.stream(
+        async for token in client.stream(
             system=system,
             messages=messages,
-            max_tokens=self._cfg.llm.max_tokens,
-            temperature=self._cfg.llm.temperature,
+            max_tokens=llm_cfg.max_tokens,
+            temperature=llm_cfg.temperature,
         ):
             raw += token
             full_text += token
